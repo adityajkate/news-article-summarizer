@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Linguistic Analysis Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+
+      :root {
+        --paper: #f7f6f2;
+        --surface: #ffffff;
+        --surface-soft: #f0eee7;
+        --ink: #15161a;
+        --ink-soft: #6b6d76;
+        --line: #e5e2d9;
+        --signal: #1d4fd8;
+        --signal-soft: rgba(29, 79, 216, 0.08);
+        --signal-ink: #16359e;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Space Grotesk", sans-serif;
+        background-color: var(--paper);
+        color: var(--ink);
+      }
+
+      .font-serif-display {
+        font-family: "Fraunces", serif;
+      }
+
+      .field {
+        background-color: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 1.1rem 1.25rem;
+        color: var(--ink);
+        width: 100%;
+        transition:
+          border-color 0.2s ease,
+          box-shadow 0.2s ease;
+      }
+      .field:focus {
+        outline: none;
+        border-color: var(--signal);
+        box-shadow: 0 0 0 3px var(--signal-soft);
+      }
+      .field::placeholder {
+        color: var(--ink-soft);
+      }
+
+      .panel {
+        background-color: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 1.9rem;
+      }
+
+      .panel-soft {
+        background-color: var(--surface-soft);
+        border-radius: 16px;
+        padding: 1.25rem 1.4rem;
+      }
+
+      .panel-hover {
+        transition:
+          border-color 0.2s ease,
+          background-color 0.2s ease;
+      }
+      .panel-hover:hover {
+        border-color: #c9c5b8;
+      }
+
+      .btn-primary {
+        background-color: var(--ink);
+        color: white;
+        transition:
+          background-color 0.2s ease,
+          transform 0.1s ease;
+      }
+      .btn-primary:hover {
+        background-color: var(--signal);
+      }
+      .btn-primary:active {
+        transform: scale(0.985);
+      }
+
+      .spinner {
+        border: 3px solid var(--signal-soft);
+        border-left-color: var(--signal);
+        border-radius: 50%;
+        width: 22px;
+        height: 22px;
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .tag {
+        font-size: 0.75rem;
+        font-weight: 500;
+        padding: 0.3rem 0.65rem;
+        border-radius: 9999px;
+        background-color: var(--surface-soft);
+        color: var(--ink-soft);
+      }
+
+      .fade-in {
+        animation: fadeIn 0.5s ease-out forwards;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      /* Source-text reading overlay: mirrors the textarea exactly */
+      .source-overlay {
+        position: fixed;
+        z-index: 40;
+        overflow: hidden;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        pointer-events: none;
+        transition: opacity 0.35s ease;
+      }
+
+      .src-token {
+        border-radius: 4px;
+        padding: 0 2px;
+        margin: 0 -2px;
+        transition:
+          background-color 0.25s ease,
+          color 0.25s ease;
+      }
+      .src-token.reading {
+        background-color: var(--surface-soft);
+        transition: background-color 0.08s ease;
+      }
+      .src-token.highlight-active {
+        background-color: var(--signal-soft);
+        color: var(--signal-ink);
+        font-weight: 600;
+      }
+
+      /* Words fade into the summary in place, one at a time */
+      .summary-word {
+        display: inline-block;
+        opacity: 0;
+        transform: translateY(4px);
+        transition:
+          opacity 0.4s ease,
+          transform 0.4s ease;
+      }
+      .summary-word.show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    </style>
+  </head>
+  <body
+    class="antialiased min-h-screen flex flex-col items-center py-14 px-4 sm:px-8"
+  >
+    <main class="w-full max-w-6xl space-y-14">
+      <header class="max-w-2xl space-y-3">
+        <p class="text-xs font-medium text-[var(--ink-soft)] tracking-wide">
+          Extractive NLP pipeline
+        </p>
+        <h1
+          class="font-serif-display text-4xl sm:text-5xl leading-[1.1] text-[var(--ink)]"
+        >
+          Linguistic Analysis Engine
+        </h1>
+        <p class="text-base sm:text-lg text-[var(--ink-soft)] leading-relaxed">
+          Morphological extraction, word-sense disambiguation, and extractive
+          summarization — watching a document get read, word by word.
+        </p>
+      </header>
+
+      <section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div class="lg:col-span-7 panel space-y-6">
+          <h2 class="text-lg font-medium">Document input</h2>
+
+          <div>
+            <label class="block text-sm text-[var(--ink-soft)] mb-2"
+              >Source text</label
+            >
+            <textarea
+              id="articleInput"
+              rows="7"
+              class="field text-[15px] leading-relaxed resize-y"
+              placeholder="Enter source document..."
+            >
+The Central Bank of India announced a historic monetary policy adjustment on Wednesday. The governing bank aims to curb surging inflation by steadily raising interest rates. Financial market analysts and institutional investors expressed surprise over the timing. Meanwhile, torrential rains caused the heavy river bank to overflow in northern provinces, causing severe flooding across local communities. The national government is delivering emergency relief supplies to support families residing near the river bank.</textarea
+            >
+          </div>
+
+          <div>
+            <label class="block text-sm text-[var(--ink-soft)] mb-2"
+              >Similarity baseline</label
+            >
+            <textarea
+              id="comparisonInput"
+              rows="2"
+              class="field text-sm resize-none"
+            >
+The Indian Central Bank adjusted interest rates today to reduce high inflation across markets.</textarea
+            >
+          </div>
+
+          <button
+            id="executeBtn"
+            onclick="runPipeline()"
+            class="btn-primary w-full font-medium py-3.5 rounded-xl flex justify-center items-center gap-2"
+          >
+            <span>Execute analysis</span>
+          </button>
+        </div>
+
+        <div
+          class="lg:col-span-5 panel bg-[var(--surface-soft)] border-transparent relative overflow-hidden"
+          id="summaryContainerBox"
+        >
+          <h2 class="text-lg font-medium">Extractive summary</h2>
+
+          <div
+            class="flex-1 flex flex-col justify-center h-full mt-4 relative min-h-[220px]"
+          >
+            <div
+              id="loading"
+              class="hidden flex-col items-center justify-center gap-4 h-full"
+            >
+              <div class="spinner"></div>
+              <span
+                class="text-xs font-medium text-[var(--ink-soft)] tracking-wide"
+                >Reading the source text</span
+              >
+            </div>
+
+            <p id="idleState" class="text-[var(--ink-soft)] my-auto">
+              Awaiting document input.
+            </p>
+
+            <p
+              id="summaryText"
+              class="font-serif-display text-[var(--ink)] text-xl leading-relaxed hidden text-left w-full"
+            ></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="outputDashboard" class="hidden space-y-6">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="panel panel-hover space-y-3">
+            <div class="flex justify-between items-start">
+              <h3 class="font-medium">Word cloud</h3>
+              <span
+                class="tag"
+                style="background-color: var(--ink); color: #fff"
+                >Sim: <span id="simScore">0%</span></span
+              >
+            </div>
+            <img
+              id="wordcloudImg"
+              src=""
+              alt="Word Cloud"
+              class="w-full h-auto object-cover rounded-xl border border-[var(--line)]"
+            />
+          </div>
+
+          <div class="panel panel-hover space-y-4">
+            <h3 class="font-medium">Word sense — target "bank"</h3>
+            <p id="wsdSense" class="text-[var(--ink-soft)] leading-relaxed"></p>
+            <div>
+              <div
+                class="flex justify-between text-xs text-[var(--ink-soft)] mb-1.5"
+              >
+                <span>Confidence</span>
+                <span id="wsdConf" class="text-[var(--ink)] font-medium"
+                  >0%</span
+                >
+              </div>
+              <div
+                class="w-full bg-[var(--surface-soft)] rounded-full h-1.5 overflow-hidden"
+              >
+                <div
+                  id="wsdBar"
+                  class="h-1.5 rounded-full transition-all duration-1000 ease-out"
+                  style="width: 0%; background-color: var(--signal)"
+                ></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel space-y-3">
+          <h3 class="font-medium">Morphological graph</h3>
+          <div class="overflow-x-auto w-full">
+            <table class="w-full text-left text-sm whitespace-nowrap">
+              <thead
+                class="text-[var(--ink-soft)] border-b border-[var(--line)]"
+              >
+                <tr>
+                  <th class="pb-3 font-medium">Token</th>
+                  <th class="pb-3 font-medium">Lemma</th>
+                  <th class="pb-3 font-medium">POS</th>
+                  <th class="pb-3 font-medium">Inflection data</th>
+                </tr>
+              </thead>
+              <tbody
+                id="morphTable"
+                class="divide-y divide-[var(--line)]"
+              ></tbody>
+            </table>
+          </div>
+          <div
+            id="genWords"
+            class="text-xs text-[var(--ink-soft)] border-t border-[var(--line)] pt-4"
+          ></div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          <div class="panel-soft panel-hover space-y-2">
+            <h3 class="font-medium text-sm">Syntactic chunks</h3>
+            <div
+              id="chunksList"
+              class="flex flex-col gap-1.5 mt-1 overflow-y-auto max-h-48 pr-2"
+            ></div>
+          </div>
+
+          <div class="panel-soft panel-hover space-y-2">
+            <h3 class="font-medium text-sm">Named entities</h3>
+            <div id="nerList" class="flex flex-wrap gap-2 mt-1"></div>
+          </div>
+
+          <div class="panel-soft panel-hover space-y-2">
+            <div class="flex justify-between items-start">
+              <h3 class="font-medium text-sm">Base tokens</h3>
+              <span class="tag bg-red-50 text-red-700 border border-red-100"
+                >Stops: <span id="stopWordsCount">0</span></span
+              >
+            </div>
+            <div id="tokensList" class="flex flex-wrap gap-1.5 mt-2"></div>
+          </div>
+
+          <div class="panel-soft panel-hover space-y-2">
+            <h3 class="font-medium text-sm">Part of speech</h3>
+            <div id="posTagsList" class="flex flex-wrap gap-2 mt-1"></div>
+          </div>
+
+          <div
+            class="panel-soft panel-hover space-y-2 md:col-span-2 xl:col-span-1"
+          >
+            <h3 class="font-medium text-sm">Contextual bigrams</h3>
+            <ul
+              id="bigramsList"
+              class="space-y-2 mt-1 text-[var(--ink-soft)] text-sm"
+            ></ul>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      function escapeHtml(str) {
+        return str.replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      }
+
+      // Sweeps a "reading cursor" across every word of the article, in
+      // order — flashing past words that aren't used, and pausing to
+      // highlight each summary word in place, then fading it directly into
+      // the summary panel to build the sentence in the order it's read.
+      //
+      // The words shown are located by matching whole SENTENCES from the
+      // summary against contiguous runs of words in the article (extractive
+      // summaries are literal sentences lifted from the source). That's
+      // what guarantees the animated build-up is exactly the words in
+      // exactly the order they appear in `summary` — never a different
+      // word picked from a duplicate occurrence, never out of order.
+      async function triggerExtractionAnimation(article, summary, callback) {
+        const textarea = document.getElementById("articleInput");
+        const summaryEl = document.getElementById("summaryText");
+
+        const finish = () => {
+          summaryEl.textContent = summary;
+          summaryEl.classList.remove("hidden");
+          summaryEl.classList.add("fade-in");
+          callback();
+        };
+
+        const norm = (w) => w.toLowerCase().replace(/[^a-z0-9']/g, "");
+
+        const articleTokens = article.split(/(\s+)/);
+        const articleWords = [];
+        articleTokens.forEach((tok, i) => {
+          if (/[A-Za-z0-9']/.test(tok))
+            articleWords.push({ tokenIndex: i, norm: norm(tok) });
+        });
+
+        // Split the summary into its sentences, then find each one as an
+        // exact, contiguous run of words in the article.
+        const sentences = (summary.match(/[^.!?]+[.!?]*/g) || [summary])
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+        const matchOrder = {}; // article tokenIndex -> position of that word in the flattened summary
+        let cursor = 0;
+        let flatPos = 0;
+
+        sentences.forEach((sentence) => {
+          const sentWords = (sentence.match(/[A-Za-z0-9']+/g) || []).map(norm);
+          if (sentWords.length === 0) return;
+
+          for (
+            let start = cursor;
+            start <= articleWords.length - sentWords.length;
+            start++
+          ) {
+            let ok = true;
+            for (let j = 0; j < sentWords.length; j++) {
+              if (articleWords[start + j].norm !== sentWords[j]) {
+                ok = false;
+                break;
+              }
+            }
+            if (ok) {
+              for (let j = 0; j < sentWords.length; j++) {
+                matchOrder[articleWords[start + j].tokenIndex] = flatPos++;
+              }
+              cursor = start + sentWords.length;
+              return;
+            }
+          }
+          // This sentence wasn't found verbatim — leave its slots empty,
+          // the true text still lands correctly once we finalize below.
+          flatPos += sentWords.length;
+        });
+
+        const totalSlots = flatPos;
+        if (totalSlots === 0 || Object.keys(matchOrder).length === 0) {
+          finish();
+          return;
+        }
+
+        const wordTokenIndices = [];
+        let html = "";
+        articleTokens.forEach((tok, i) => {
+          if (/[A-Za-z0-9']/.test(tok)) {
+            const attr = matchOrder.hasOwnProperty(i)
+              ? ` data-order="${matchOrder[i]}"`
+              : "";
+            html += `<span class="src-token" data-tok="${i}"${attr}>${escapeHtml(tok)}</span>`;
+            wordTokenIndices.push(i);
+          } else {
+            html += escapeHtml(tok);
+          }
+        });
+
+        const rect = textarea.getBoundingClientRect();
+        const cs = window.getComputedStyle(textarea);
+        const overlay = document.createElement("div");
+        overlay.className = "source-overlay field";
+        overlay.style.left = rect.left + "px";
+        overlay.style.top = rect.top + "px";
+        overlay.style.width = rect.width + "px";
+        overlay.style.height = rect.height + "px";
+        overlay.style.padding = cs.padding;
+        overlay.style.font = cs.font;
+        overlay.style.lineHeight = cs.lineHeight;
+        overlay.innerHTML = html;
+        document.body.appendChild(overlay);
+        textarea.style.visibility = "hidden";
+
+        summaryEl.textContent = "";
+        summaryEl.classList.remove("hidden");
+
+        // Render by fixed slot position, not by arrival order, so the
+        // sentence is always shown left-to-right correctly even if a
+        // later sentence's span is scanned before an earlier one's.
+        const builtWords = new Array(totalSlots);
+        const renderSummary = (justFilledSlot) => {
+          summaryEl.innerHTML = builtWords
+            .map((w, slot) =>
+              w === undefined
+                ? ""
+                : `<span class="summary-word${slot === justFilledSlot ? "" : " show"}">${escapeHtml(w)}</span>`,
+            )
+            .join(" ");
+          if (justFilledSlot !== undefined) {
+            const node =
+              summaryEl.querySelectorAll(".summary-word")[
+                builtWords
+                  .slice(0, justFilledSlot + 1)
+                  .filter((w) => w !== undefined).length - 1
+              ];
+            if (node) requestAnimationFrame(() => node.classList.add("show"));
+          }
+        };
+
+        let matchesFound = 0;
+        const totalMatches = Object.keys(matchOrder).length;
+
+        for (const tokenIndex of wordTokenIndices) {
+          const span = overlay.querySelector(`[data-tok="${tokenIndex}"]`);
+          if (!span) continue;
+
+          if (matchOrder.hasOwnProperty(tokenIndex)) {
+            span.classList.add("highlight-active");
+            await sleep(200);
+
+            const slot = matchOrder[tokenIndex];
+            builtWords[slot] = articleTokens[tokenIndex].trim();
+            renderSummary(slot);
+
+            matchesFound++;
+            if (matchesFound === totalMatches) break;
+            await sleep(240);
+          } else {
+            span.classList.add("reading");
+            await sleep(35);
+            span.classList.remove("reading");
+          }
+        }
+
+        await sleep(450);
+        overlay.style.opacity = "0";
+        summaryEl.textContent = summary;
+        summaryEl.classList.add("fade-in");
+        await sleep(350);
+        overlay.remove();
+        textarea.style.visibility = "visible";
+        callback();
+      }
+
+      async function runPipeline() {
+        const article = document.getElementById("articleInput").value;
+        const comparison = document.getElementById("comparisonInput").value;
+        const btn = document.getElementById("executeBtn");
+        const summaryText = document.getElementById("summaryText");
+
+        if (!article.trim()) return;
+
+        document.getElementById("idleState").classList.add("hidden");
+        summaryText.classList.add("hidden");
+        summaryText.classList.remove("fade-in");
+        document.getElementById("outputDashboard").classList.add("hidden");
+        document.getElementById("loading").classList.remove("hidden");
+        document.getElementById("loading").style.display = "flex";
+
+        btn.style.pointerEvents = "none";
+        btn.style.opacity = "0.7";
+
+        try {
+          const response = await fetch("/api/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ article, comparison_article: comparison }),
+          });
+
+          const res = await response.json();
+
+          if (res.error) {
+            console.error("API Error:", res.error);
+            document.getElementById("loading").style.display = "none";
+            document.getElementById("idleState").classList.remove("hidden");
+            btn.style.pointerEvents = "auto";
+            btn.style.opacity = "1";
+            return;
+          }
+
+          document.getElementById("loading").style.display = "none";
+          document.getElementById("loading").classList.add("hidden");
+
+          triggerExtractionAnimation(article, res.summary, () => {
+            document.getElementById("wordcloudImg").src =
+              "data:image/png;base64," + res.wordcloud_base64;
+            document.getElementById("simScore").innerText =
+              res.similarity_score + "%";
+
+            document.getElementById("tokensList").innerHTML = res.basic_tokens
+              .map((t) => `<span class="tag">${t}</span>`)
+              .join("");
+            document.getElementById("stopWordsCount").innerText =
+              res.stopwords_count;
+
+            document.getElementById("posTagsList").innerHTML = res.pos_tags
+              .map((p) => {
+                const [word, tag] = p.split(" ");
+                return `<span class="tag" style="border:1px solid var(--line); background:transparent;">${word} <span class="text-[var(--ink-soft)] ml-1">${tag.replace(/[()]/g, "")}</span></span>`;
+              })
+              .join("");
+
+            document.getElementById("morphTable").innerHTML =
+              res.morphological_analysis
+                .map(
+                  (m) =>
+                    `<tr>
+                        <td class="py-2 pr-4 font-medium">${m.Text}</td>
+                        <td class="py-2 pr-4 text-[var(--ink-soft)]">${m.Lemma}</td>
+                        <td class="py-2 pr-4"><span class="tag">${m.POS}</span></td>
+                        <td class="py-2 text-[var(--ink-soft)] text-xs">${m.Morphology}</td>
+                    </tr>`,
+                )
+                .join("");
+            document.getElementById("genWords").innerText =
+              "Generated: " + res.generated_words.join(" • ");
+
+            document.getElementById("bigramsList").innerHTML = res.bigrams
+              .map(
+                (b) =>
+                  `<li class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full" style="background:var(--signal);"></div>${b}</li>`,
+              )
+              .join("");
+
+            document.getElementById("chunksList").innerHTML = res.chunks
+              .map((c) => {
+                const isNP = c.includes("[NP]");
+                const cleanText = c.replace(/\[(NP|VP)\]/, "");
+                return `<div class="flex items-center gap-3 py-1.5 border-b border-[var(--line)] last:border-0"><span class="tag w-10 text-center" style="${isNP ? "background:var(--signal-soft); color:var(--signal-ink);" : ""}">${isNP ? "NP" : "VP"}</span><span class="text-sm truncate">${cleanText}</span></div>`;
+              })
+              .join("");
+
+            document.getElementById("nerList").innerHTML =
+              res.entities.length > 0
+                ? res.entities
+                    .map(
+                      (e) =>
+                        `<span class="tag" style="background:var(--ink); color:#fff;">${e.text} <span class="ml-1" style="color:#a3a3a3;">${e.label}</span></span>`,
+                    )
+                    .join("")
+                : '<span class="text-sm text-[var(--ink-soft)]">No entities detected</span>';
+
+            document.getElementById("wsdSense").innerText =
+              res.wsd_result.sense;
+            document.getElementById("wsdConf").innerText =
+              res.wsd_result.confidence + "%";
+
+            document
+              .getElementById("outputDashboard")
+              .classList.remove("hidden");
+
+            setTimeout(() => {
+              document.getElementById("wsdBar").style.width =
+                res.wsd_result.confidence + "%";
+            }, 100);
+
+            btn.style.pointerEvents = "auto";
+            btn.style.opacity = "1";
+          });
+        } catch (err) {
+          console.error("Connection Failed:", err);
+          document.getElementById("loading").style.display = "none";
+          document.getElementById("idleState").classList.remove("hidden");
+          btn.style.pointerEvents = "auto";
+          btn.style.opacity = "1";
+        }
+      }
+    </script>
+  </body>
+</html>
