@@ -398,12 +398,14 @@ The Indian Central Bank adjusted interest rates today to reduce high inflation a
       // highlight each summary word in place, then fading it directly into
       // the summary panel to build the sentence in the order it's read.
       //
-      // The words shown are located by matching whole SENTENCES from the
-      // summary against contiguous runs of words in the article (extractive
-      // summaries are literal sentences lifted from the source). That's
-      // what guarantees the animated build-up is exactly the words in
-      // exactly the order they appear in `summary` — never a different
-      // word picked from a duplicate occurrence, never out of order.
+      // Matching: each word of `summary`, in order, is looked up in the
+      // article starting from where the previous match left off. Searching
+      // forward from a moving cursor (instead of always from the start) is
+      // what correctly resolves repeated words — e.g. "bank" appearing 5
+      // times — to the right occurrence, and it only needs each word to
+      // exist somewhere in the article, not the whole sentence to match
+      // verbatim, so small clean-up differences from the summarizer don't
+      // break the animation.
       async function triggerExtractionAnimation(article, summary, callback) {
         const textarea = document.getElementById("articleInput");
         const summaryEl = document.getElementById("summaryText");
@@ -417,6 +419,12 @@ The Indian Central Bank adjusted interest rates today to reduce high inflation a
 
         const norm = (w) => w.toLowerCase().replace(/[^a-z0-9']/g, "");
 
+        const summaryWords = (summary.match(/[A-Za-z0-9']+/g) || []).map(norm);
+        if (summaryWords.length === 0) {
+          finish();
+          return;
+        }
+
         const articleTokens = article.split(/(\s+)/);
         const articleWords = [];
         articleTokens.forEach((tok, i) => {
@@ -424,47 +432,35 @@ The Indian Central Bank adjusted interest rates today to reduce high inflation a
             articleWords.push({ tokenIndex: i, norm: norm(tok) });
         });
 
-        // Split the summary into its sentences, then find each one as an
-        // exact, contiguous run of words in the article.
-        const sentences = (summary.match(/[^.!?]+[.!?]*/g) || [summary])
-          .map((s) => s.trim())
-          .filter(Boolean);
-
-        const matchOrder = {}; // article tokenIndex -> position of that word in the flattened summary
+        const used = new Array(articleWords.length).fill(false);
+        const matchOrder = {}; // article tokenIndex -> position of that word in the summary
         let cursor = 0;
-        let flatPos = 0;
 
-        sentences.forEach((sentence) => {
-          const sentWords = (sentence.match(/[A-Za-z0-9']+/g) || []).map(norm);
-          if (sentWords.length === 0) return;
-
-          for (
-            let start = cursor;
-            start <= articleWords.length - sentWords.length;
-            start++
-          ) {
-            let ok = true;
-            for (let j = 0; j < sentWords.length; j++) {
-              if (articleWords[start + j].norm !== sentWords[j]) {
-                ok = false;
+        summaryWords.forEach((word, order) => {
+          let foundAt = -1;
+          for (let k = cursor; k < articleWords.length; k++) {
+            if (!used[k] && articleWords[k].norm === word) {
+              foundAt = k;
+              break;
+            }
+          }
+          if (foundAt === -1) {
+            for (let k = 0; k < articleWords.length; k++) {
+              if (!used[k] && articleWords[k].norm === word) {
+                foundAt = k;
                 break;
               }
             }
-            if (ok) {
-              for (let j = 0; j < sentWords.length; j++) {
-                matchOrder[articleWords[start + j].tokenIndex] = flatPos++;
-              }
-              cursor = start + sentWords.length;
-              return;
-            }
           }
-          // This sentence wasn't found verbatim — leave its slots empty,
-          // the true text still lands correctly once we finalize below.
-          flatPos += sentWords.length;
+          if (foundAt === -1) return; // word isn't in the article verbatim - skip it
+
+          used[foundAt] = true;
+          matchOrder[articleWords[foundAt].tokenIndex] = order;
+          cursor = Math.max(cursor, foundAt + 1);
         });
 
-        const totalSlots = flatPos;
-        if (totalSlots === 0 || Object.keys(matchOrder).length === 0) {
+        const totalMatches = Object.keys(matchOrder).length;
+        if (totalMatches === 0) {
           finish();
           return;
         }
@@ -501,31 +497,30 @@ The Indian Central Bank adjusted interest rates today to reduce high inflation a
         summaryEl.textContent = "";
         summaryEl.classList.remove("hidden");
 
-        // Render by fixed slot position, not by arrival order, so the
-        // sentence is always shown left-to-right correctly even if a
-        // later sentence's span is scanned before an earlier one's.
-        const builtWords = new Array(totalSlots);
+        // Render by fixed slot position (the word's index in the summary),
+        // not by arrival order, so the sentence always reads correctly
+        // left-to-right even though matches are found while scanning the
+        // article, which is a different order.
+        const builtWords = new Array(summaryWords.length);
         const renderSummary = (justFilledSlot) => {
-          summaryEl.innerHTML = builtWords
-            .map((w, slot) =>
-              w === undefined
-                ? ""
-                : `<span class="summary-word${slot === justFilledSlot ? "" : " show"}">${escapeHtml(w)}</span>`,
-            )
-            .join(" ");
+          const spansHtml = [];
+          let newestVisibleIndex = -1;
+          builtWords.forEach((w, slot) => {
+            if (w === undefined) return;
+            newestVisibleIndex++;
+            spansHtml.push(
+              `<span class="summary-word${slot === justFilledSlot ? "" : " show"}">${escapeHtml(w)}</span>`,
+            );
+          });
+          summaryEl.innerHTML = spansHtml.join(" ");
           if (justFilledSlot !== undefined) {
             const node =
-              summaryEl.querySelectorAll(".summary-word")[
-                builtWords
-                  .slice(0, justFilledSlot + 1)
-                  .filter((w) => w !== undefined).length - 1
-              ];
+              summaryEl.querySelectorAll(".summary-word")[newestVisibleIndex];
             if (node) requestAnimationFrame(() => node.classList.add("show"));
           }
         };
 
         let matchesFound = 0;
-        const totalMatches = Object.keys(matchOrder).length;
 
         for (const tokenIndex of wordTokenIndices) {
           const span = overlay.querySelector(`[data-tok="${tokenIndex}"]`);
@@ -533,7 +528,7 @@ The Indian Central Bank adjusted interest rates today to reduce high inflation a
 
           if (matchOrder.hasOwnProperty(tokenIndex)) {
             span.classList.add("highlight-active");
-            await sleep(200);
+            await sleep(180);
 
             const slot = matchOrder[tokenIndex];
             builtWords[slot] = articleTokens[tokenIndex].trim();
@@ -541,10 +536,10 @@ The Indian Central Bank adjusted interest rates today to reduce high inflation a
 
             matchesFound++;
             if (matchesFound === totalMatches) break;
-            await sleep(240);
+            await sleep(200);
           } else {
             span.classList.add("reading");
-            await sleep(35);
+            await sleep(30);
             span.classList.remove("reading");
           }
         }
